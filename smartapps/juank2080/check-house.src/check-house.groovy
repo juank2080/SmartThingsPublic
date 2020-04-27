@@ -49,7 +49,7 @@ def updated() {
 	log.debug "Updated with settings: ${settings}"
 
 	unsubscribe()
-    unschedule()
+	unschedule()
     
 	initialize()
 }
@@ -109,7 +109,7 @@ def checkLights() {
       	} else {
         	state.lightAttempt = 0
             log.debug "Any indoor light is on, turning lights off"
-            lightsOutdoorRef.findAll { light -> light.currentSwitch == "on" }.each { light -> light.off() }
+            lightsOutdoorRef.findAll { light -> light.currentSwitch == "on" }?.each { light -> light.off() }
         }
         
     } else {
