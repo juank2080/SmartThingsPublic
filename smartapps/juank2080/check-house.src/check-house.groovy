@@ -25,21 +25,28 @@ definition(
 
 
 preferences {
-	page(name: "pageOne", nextPage: "pageTwo", uninstall: true) {
+	page(name: "pageOne", nextPage: "pageTwo", uninstall: true)
+	page(name: "pageTwo", nextPage: "pageThree", uninstall: true) {
     	section() {
             paragraph image: "https://s3.amazonaws.com/smartapp-icons/Solution/doors-locks-active.png",
                       title: "Locks",
                       required: true,
                       "Configuration routines and checks for house locks"
 		}
+        section("Front door check:") {
+            input "frontDoorSensor", "capability.contactSensor", title: "Front door sensor?", required: false, multiple: false
+            input "frontDoorLock", "capability.lock", title: "Front door lock?", required: false, multiple: false
+            input "checkFrontDoorInterval", "number", title: "Check door each: (min)", required: false, multiple: false
+            input "closeFrontDoorDelayAfterSensorClosed", "number", title: "After sensor closes, lock door after: (sec)", required: false, multiple: false
+        }
         section("Side door check:") {
-            input "sideDoorSensor", "capability.contactSensor", title: "Side door sensor?", required: true, multiple: false
-            input "sideDoorLock", "capability.lock", title: "Side door lock?", required: true, multiple: false
-            input "checkSideDoorInterval", "number", title: "Check door each: (min)", required: true, multiple: false
-            input "closeSideDoorDelayAfterSensorClosed", "number", title: "After sensor closes, lock door after: (sec)", required: true, multiple: false
+            input "sideDoorSensor", "capability.contactSensor", title: "Side door sensor?", required: false, multiple: false
+            input "sideDoorLock", "capability.lock", title: "Side door lock?", required: false, multiple: false
+            input "checkSideDoorInterval", "number", title: "Check door each: (min)", required: false, multiple: false
+            input "closeSideDoorDelayAfterSensorClosed", "number", title: "After sensor closes, lock door after: (sec)", required: false, multiple: false
         }
     }
-    page(name: "pageTwo", nextPage: "pageThree", uninstall: true) {
+    page(name: "pageThree", install: true, uninstall: true) {
     	section() {
             paragraph image: "https://s3.amazonaws.com/smartapp-icons/HealthAndWellness/App-SleepyTime.png",
                       title: "Go Bed Routines",
@@ -58,26 +65,35 @@ preferences {
             input "timeOfDayLocks", "time", title: "Time?"
         }
 	}
-    page(name: "pageThree", install: true, uninstall: true)
 }
 
-def pageThree() {
-    dynamicPage(name: "pageThree", install: true) {
+def pageOne() {
+    dynamicPage(name: "pageOne", nextPage: "pageTwo", uninstall: true) {
         section() {
             paragraph image: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
                       title: "Runtime Information",
                       required: true,
                       "Shows some statistics of the app."
 		}
-        section {
+        section("Outside lights:") {
         	paragraph "Outside lights on: ${lightsOutdoorRef?.any { light -> light.currentSwitch == "on" }? "Yes" : "No"}"
 			paragraph "Outside lights attempt: ${state?.lightAttempt != null? state.lightAttempt : "NA"}"
             paragraph "Outside lights shut at: ${state?.outsideLightsShutAt != null? formateTime(state.outsideLightsShutAt) : "NA"}"
             paragraph "Outside lights check status: ${state?.outsideLightsCheckStatus != null? state.outsideLightsCheckStatus : "NA"}"
+        }
+        section("Front door:") {
+            paragraph "Front door closed by: ${state?.frontDoorClosedBy != null? state.frontDoorClosedBy : "NA"}"
+            paragraph "Front door closed by at: ${state?.frontDoorClosedByAt != null? formateTime(state.frontDoorClosedByAt) : "NA"}"
+            paragraph "Front door check status: ${state?.frontDoorCheckStatus != null? state?.frontDoorCheckStatus : "NA"}"
+        }
+        section("Side door:") {
             paragraph "Side door closed by: ${state?.sideDoorClosedBy != null? state.sideDoorClosedBy : "NA"}"
             paragraph "Side door closed by at: ${state?.sideDoorClosedByAt != null? formateTime(state.sideDoorClosedByAt) : "NA"}"
             paragraph "Side door check status: ${state?.sideDoorCheckStatus != null? state?.sideDoorCheckStatus : "NA"}"
 		}
+        section("General:") {
+        	paragraph "Go bed locks routine: ${state?.goBedLocksStatus != null? state?.goBedLocksStatus : "NA"}"
+        }
     }
 }
 
@@ -98,11 +114,60 @@ def updated() {
 
 def initialize() {
 	log.debug "initialize"
+    
+    // Init counters
+    state.lightAttempt = 0
+    
+    state.sideDoorClosedBy = "-"
+    state.sideDoorClosedByAt = null
+    state.sideDoorCheckStatus = "-"
+    
+    state.frontDoorClosedBy = "-"
+    state.frontDoorClosedByAt = null
+    state.frontDoorCheckStatus = "-"
+    
+    state.outsideLightsShutAt = null
+    state.outsideLightsCheckStatus = "-"
+    
+    state.goBedLocksStatus = null
   
-	// My App event subscriptions  
-    subscribe(sideDoorLock, "lock.locked", sideDoorLockOnlock)
-	subscribe(sideDoorLock, "lock.unlocked", sideDoorLockOnUnlocked)
-	subscribe(sideDoorSensor, "contact.closed", contactSideDoorSensorOnClose)
+	// My App event subscriptions
+    if (frontDoorLock != null) {
+        subscribe(frontDoorLock, "lock.locked", frontDoorLockOnlock)
+        subscribe(frontDoorLock, "lock.unlocked", frontDoorLockOnUnlocked)
+        subscribe(frontDoorSensor, "contact.closed", contactFrontDoorSensorOnClose)
+        
+        // Check if door is currently "unlocked"
+        log.debug "Current values: Door (${frontDoorLock.currentLock}), Contact: (${frontDoorSensor.currentContact})"
+        if (frontDoorLock.currentLock != "locked" && frontDoorSensor.currentContact == "closed") {
+            log.debug "Setting timer to check front door again in ${checkFrontDoorInterval} min"
+
+            state.frontDoorClosedBy = null
+            state.frontDoorClosedByAt = null
+            state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Front door is currently opened, checking sensor in ${checkFrontDoorInterval} min"
+            sendEvent(name: "status", value: "updated")
+
+            runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
+        } 
+  	}
+    if (sideDoorLock != null) {
+        subscribe(sideDoorLock, "lock.locked", sideDoorLockOnlock)
+        subscribe(sideDoorLock, "lock.unlocked", sideDoorLockOnUnlocked)
+        subscribe(sideDoorSensor, "contact.closed", contactSideDoorSensorOnClose)
+        
+        // Check if door is currently "unlocked"
+        log.debug "Current values: Door (${sideDoorLock.currentLock}), Contact: (${sideDoorSensor.currentContact})"
+        if (sideDoorLock.currentLock != "locked" && sideDoorSensor.currentContact == "closed") {
+            log.debug "Setting timer to check side door again in ${checkSideDoorInterval} min"
+
+            state.sideDoorClosedBy = null
+            state.sideDoorClosedByAt = null
+            state.sideDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Side door is currently opened, checking sensor in ${checkSideDoorInterval} min"
+            sendEvent(name: "status", value: "updated")
+
+            runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
+        } 
+  	}
     
     // Creating schedulers using timezone 
 	def start = timeToday(timeOfDayLights, location?.timeZone)
@@ -110,31 +175,12 @@ def initialize() {
     
     start = timeToday(timeOfDayLocks, location?.timeZone)
 	schedule(start, checkLocks);
-    
-    // Check if door is currently "unlocked"
-    log.debug "Current values: Door (${sideDoorLock.currentLock}), Contact: (${sideDoorSensor.currentContact})"
-    if (sideDoorLock.currentLock != "locked" && sideDoorSensor.currentContact == "closed") {
-    	log.debug "Setting timer to check door again in ${checkSideDoorInterval} min"
-        
-        state.sideDoorClosedBy = null
-    	state.sideDoorClosedByAt = null
-    	state.sideDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Door is currently opened, checking sensor in ${checkSideDoorInterval} min"
-        
-    	runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
-    }
-    
-    // Init counter
-    state.lightAttempt = 0
-    state.sideDoorClosedBy = "-"
-    state.sideDoorClosedByAt = null
-    state.sideDoorCheckStatus = "-"
-    state.outsideLightsShutAt = null
-    state.outsideLightsCheckStatus = "-"
 }
 
 /**
 * START EVENT HANDLERS
 */ 
+// Side door
 def contactSideDoorSensorOnClose(evt){
 	def method = "contactSideDoorSensorOnClose"
     
@@ -143,7 +189,7 @@ def contactSideDoorSensorOnClose(evt){
     
 	if (sideDoorLock.currentLock != "locked") {
     	log.debug "[${method}] Removing scheduler checkSideDoorSensor"
-        log.debug "[${method}] Closing door in ${closeDoorDelayAfterSensorClosed} sec"
+        log.debug "[${method}] Closing door in ${closeSideDoorDelayAfterSensorClosed} sec"
         
     	unschedule(checkSideDoorSensor)
         
@@ -175,9 +221,50 @@ def sideDoorLockOnlock(evt){
 	if (sideDoorSensor.currentContact == "closed") {
     	log.debug "[${method}] Side door is closed, removing scheduler checkSideDoorSensor"
 		unschedule(checkSideDoorSensor)
+	}
+}
+
+// Front door
+def contactFrontDoorSensorOnClose(evt){
+	def method = "contactFrontDoorSensorOnClose"
+    
+	log.debug "[${method}] checking in ${checkFrontDoorInterval} min"
+	log.debug "[${method}] Front door lock status in ${frontDoorLock.currentLock}"
+    
+	if (frontDoorLock.currentLock != "locked") {
+    	log.debug "[${method}] Removing scheduler checkFrontDoorSensor"
+        log.debug "[${method}] Closing door in ${closeFrontDoorDelayAfterSensorClosed} sec"
         
-        state.sideDoorCheckStatus = "Door is closed"
+    	unschedule(checkFrontDoorSensor)
+        
+        state.frontDoorClosedBy = null
+    	state.frontDoorClosedByAt = null
+        state.frontDoorCheckStatus = "Front door sensor closed, door will be closed in ${closeFrontDoorDelayAfterSensorClosed} sec"
         sendEvent(name: "status", value: "updated")
+        
+    	runIn(closeFrontDoorDelayAfterSensorClosed, closeFrontDoor)
+    }
+}
+
+def frontDoorLockOnUnlocked(evt) {
+	def method = "frontDoorLockOnUnlocked"
+	log.debug "[${method}] checking in ${checkFrontDoorInterval} min"
+    
+    state.frontDoorClosedBy = null
+    state.frontDoorClosedByAt = null
+    state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Front door has been opened, checking sensor in ${checkFrontDoorInterval} min"
+    sendEvent(name: "status", value: "updated")
+    
+	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
+}
+
+def frontDoorLockOnlock(evt){
+	def method = "frontDoorLockOnlock"
+	log.debug "[${method}] Front door sensor status ${frontDoorSensor.currentContact}"
+    
+	if (frontDoorSensor.currentContact == "closed") {
+    	log.debug "[${method}] Front door is closed, removing scheduler checkFrontDoorSensor"
+		unschedule(checkFrontDoorSensor)
 	}
 }
 /*** END EVENT HANDLERS ***/
@@ -185,10 +272,12 @@ def sideDoorLockOnlock(evt){
 /**
 * DOOR METHODS
 */
+// Side door
 def closeSideDoor(){
 	state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
     state.sideDoorClosedByAt = now()
     state.sideDoorCheckStatus = "Door is closed"
+    sendEvent(name: "status", value: "updated")
     
 	sideDoorLock.lock()
 }
@@ -203,6 +292,7 @@ def checkSideDoorSensor() {
         state.sideDoorClosedBy = "[${method}]"
         state.sideDoorClosedByAt = now()
         state.sideDoorCheckStatus = "Door is closed"
+        sendEvent(name: "status", value: "updated")
         
 		sideDoorLock.lock()
 	} else if (sideDoorLock.currentLock != "locked") {
@@ -221,17 +311,59 @@ def checkSideDoorSensor() {
         sendEvent(name: "status", value: "updated")
     }
 }
+// Front door
+def closeFrontDoor(){
+	state.frontDoorClosedBy = "[contactFrontDoorSensorOnClose]"
+    state.frontDoorClosedByAt = now()
+    state.frontDoorCheckStatus = "Door is closed"
+    sendEvent(name: "status", value: "updated")
+    
+	frontDoorLock.lock()
+}
 
+def checkFrontDoorSensor() {
+	def method = "checkFrontDoorSensor"
+	log.debug "[${method}] The current value of frontDoorSensor is ${frontDoorSensor.currentContact}"
+    
+	if (frontDoorSensor.currentContact == "closed") {
+		log.debug "[${method}] Locking side door"
+        
+        state.frontDoorClosedBy = "[${method}]"
+        state.frontDoorClosedByAt = now()
+        state.frontDoorCheckStatus = "Door is closed"
+        sendEvent(name: "status", value: "updated")
+        
+		frontDoorLock.lock()
+	} else if (frontDoorLock.currentLock != "locked") {
+    	log.debug "[${method}] Executing checkFrontDoorSensor in ${checkFrontDoorInterval} min"
+        
+        state.frontDoorClosedBy = null
+        state.frontDoorClosedByAt = null
+        state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkFrontDoorInterval} min"
+        sendEvent(name: "status", value: "updated")
+        
+    	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor, [overwrite: false]);
+  	} else {
+    	state.frontDoorClosedBy = null
+        state.frontDoorClosedByAt = now()
+        state.frontDoorCheckStatus = "Door is closed"
+        sendEvent(name: "status", value: "updated")
+    }
+}
+
+// Go bed procedure - Locks
 def checkLocks(){
 	def method = "checkLocks"
 	log.debug "[${method}] Locking doors..."
     
-    state.sideDoorClosedBy = "[${method}]"
-    state.sideDoorClosedByAt = now()
-    state.sideDoorCheckStatus = "Doors closed"
-    sendEvent(name: "status", value: "updated")
+    if (doorLocks?.any { lock -> lock.currentLock != "locked" }) {
+    	doorLocks.findAll { lock -> lock.currentLock != "locked" }?.each { lock -> lock.lock() }
+    	state.goBedLocksStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Doors were closed (${doorLocks.size()})"
+    } else {
+    	state.goBedLocksStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] All doors were already closed (${doorLocks.size()})"
+    }
     
-	doorLocks.findAll { lock -> lock.currentLock != "locked" }?.each { lock -> lock.lock() }
+    sendEvent(name: "status", value: "updated")
 }
 /**
 * END DOOR METHODS
