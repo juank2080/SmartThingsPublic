@@ -144,7 +144,7 @@ def initialize() {
 
             state.frontDoorClosedBy = null
             state.frontDoorClosedByAt = null
-            state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Front door is currently opened, checking sensor in ${checkFrontDoorInterval} min"
+            state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door is currently opened, checking sensor in ${checkFrontDoorInterval} min"
             sendEvent(name: "status", value: "updated")
 
             runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
@@ -162,7 +162,7 @@ def initialize() {
 
             state.sideDoorClosedBy = null
             state.sideDoorClosedByAt = null
-            state.sideDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Side door is currently opened, checking sensor in ${checkSideDoorInterval} min"
+            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door is currently opened, checking sensor in ${checkSideDoorInterval} min"
             sendEvent(name: "status", value: "updated")
 
             runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
@@ -208,7 +208,7 @@ def sideDoorLockOnUnlocked(evt) {
     
     state.sideDoorClosedBy = null
     state.sideDoorClosedByAt = null
-    state.sideDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Side door has been opened, checking sensor in ${checkSideDoorInterval} min"
+    state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been opened, checking sensor in ${checkSideDoorInterval} min"
     sendEvent(name: "status", value: "updated")
     
 	runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
@@ -252,7 +252,7 @@ def frontDoorLockOnUnlocked(evt) {
     
     state.frontDoorClosedBy = null
     state.frontDoorClosedByAt = null
-    state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Front door has been opened, checking sensor in ${checkFrontDoorInterval} min"
+    state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door has been opened, checking sensor in ${checkFrontDoorInterval} min"
     sendEvent(name: "status", value: "updated")
     
 	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
@@ -280,6 +280,8 @@ def closeSideDoor(){
     sendEvent(name: "status", value: "updated")
     
 	sideDoorLock.lock()
+    
+    sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed")
 }
 
 def checkSideDoorSensor() {
@@ -300,7 +302,7 @@ def checkSideDoorSensor() {
         
         state.sideDoorClosedBy = null
         state.sideDoorClosedByAt = null
-        state.sideDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkSideDoorInterval} min"
+        state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkSideDoorInterval} min"
         sendEvent(name: "status", value: "updated")
         
     	runIn(60 * checkSideDoorInterval, checkSideDoorSensor, [overwrite: false]);
@@ -319,6 +321,8 @@ def closeFrontDoor(){
     sendEvent(name: "status", value: "updated")
     
 	frontDoorLock.lock()
+    
+    sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door has been closed")
 }
 
 def checkFrontDoorSensor() {
@@ -339,7 +343,7 @@ def checkFrontDoorSensor() {
         
         state.frontDoorClosedBy = null
         state.frontDoorClosedByAt = null
-        state.frontDoorCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkFrontDoorInterval} min"
+        state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkFrontDoorInterval} min"
         sendEvent(name: "status", value: "updated")
         
     	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor, [overwrite: false]);
@@ -358,9 +362,9 @@ def checkLocks(){
     
     if (doorLocks?.any { lock -> lock.currentLock != "locked" }) {
     	doorLocks.findAll { lock -> lock.currentLock != "locked" }?.each { lock -> lock.lock() }
-    	state.goBedLocksStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Doors were closed (${doorLocks.size()})"
+    	state.goBedLocksStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Doors were closed (${doorLocks.size()})"
     } else {
-    	state.goBedLocksStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] All doors were already closed (${doorLocks.size()})"
+    	state.goBedLocksStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] All doors were already closed (${doorLocks.size()})"
     }
     
     sendEvent(name: "status", value: "updated")
@@ -387,7 +391,7 @@ def checkLights() {
                 state.lightAttempt = state.lightAttempt + 1
                 log.debug "[${method}] It is at least one light indoor on, check again in ${checkInterval}min, attempt: ${state.lightAttempt}"
 
-                state.outsideLightsCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Indoor lights still on, cheking in ${checkInterval} min"
+                state.outsideLightsCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Indoor lights still on, cheking in ${checkInterval} min"
                 state.outsideLightsShutAt = null
                 sendEvent(name: "status", value: "updated")
 
@@ -395,7 +399,7 @@ def checkLights() {
         	} else {
             	log.debug "[${method}] Max attempts reached, indoor lights still on, no more attempts will be done, outdoor lights remain on"
             
-            	state.outsideLightsCheckStatus = "[${new Date(now()).format("hh:mm a", location.timeZone)}] Indoor lights still on, no more attempts will be done, outdoor lights remain on"
+            	state.outsideLightsCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Indoor lights still on, no more attempts will be done, outdoor lights remain on"
                 state.outsideLightsShutAt = null
                 sendEvent(name: "status", value: "updated")
             }
@@ -403,7 +407,7 @@ def checkLights() {
         	state.lightAttempt = 0
             log.debug "[${method}] Any indoor light is on, turning lights off"
             
-    		state.outsideLightsCheckStatus = "Outdoor lights off"
+    		state.outsideLightsCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Outdoor lights off"
             state.outsideLightsShutAt = now()
             sendEvent(name: "status", value: "updated")
             
@@ -424,5 +428,5 @@ def checkLights() {
 */
 
 def formateTime(java.lang.Long time) {
-	return new Date(time).format("hh:mm a", location.timeZone);
+	return new Date(time).format("MM/dd hh:mm a", location.timeZone);
 }
