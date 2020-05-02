@@ -133,9 +133,9 @@ def initialize() {
   
 	// My App event subscriptions
     if (frontDoorLock != null) {
-        subscribe(frontDoorLock, "lock.locked", frontDoorLockOnlock)
-        subscribe(frontDoorLock, "lock.unlocked", frontDoorLockOnUnlocked)
-        subscribe(frontDoorSensor, "contact.closed", contactFrontDoorSensorOnClose)
+        subscribe(frontDoorLock, "lock.locked", onLockLock)
+        subscribe(frontDoorLock, "lock.unlocked", onLockUnlock)
+        subscribe(frontDoorSensor, "contact.closed", onSensorClose)
         
         // Check if door is currently "unlocked"
         log.debug "Current values: Door (${frontDoorLock.currentLock}), Contact: (${frontDoorSensor.currentContact})"
@@ -147,13 +147,13 @@ def initialize() {
             state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door is currently opened, checking sensor in ${checkFrontDoorInterval} min"
             sendEvent(name: "status", value: "updated")
 
-            runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
+            runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor, [overwrite: false, data: [deviceObj: frontDoorSensor]]);
         } 
   	}
     if (sideDoorLock != null) {
-        subscribe(sideDoorLock, "lock.locked", sideDoorLockOnlock)
-        subscribe(sideDoorLock, "lock.unlocked", sideDoorLockOnUnlocked)
-        subscribe(sideDoorSensor, "contact.closed", contactSideDoorSensorOnClose)
+        subscribe(sideDoorLock, "lock.locked", onLockLock)
+        subscribe(sideDoorLock, "lock.unlocked", onLockUnlock)
+        subscribe(sideDoorSensor, "contact.closed", onSensorClose)
         
         // Check if door is currently "unlocked"
         log.debug "Current values: Door (${sideDoorLock.currentLock}), Contact: (${sideDoorSensor.currentContact})"
@@ -165,7 +165,7 @@ def initialize() {
             state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door is currently opened, checking sensor in ${checkSideDoorInterval} min"
             sendEvent(name: "status", value: "updated")
 
-            runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
+            runIn(60 * checkSideDoorInterval, checkSideDoorSensor, [overwrite: false, data: [deviceObj: sideDoorSensor]]);
         } 
   	}
     
@@ -181,91 +181,73 @@ def initialize() {
 * START EVENT HANDLERS
 */ 
 // Side door
-def contactSideDoorSensorOnClose(evt){
-	def method = "contactSideDoorSensorOnClose"
+def onSensorClose(evt){
+	def method = "onSensorClose"
     
-	log.debug "[${method}] checking in ${checkSideDoorInterval} min"
-	log.debug "[${method}] Side door lock status in ${sideDoorLock.currentLock}"
-    
-	if (sideDoorLock.currentLock != "locked") {
-    	log.debug "[${method}] Removing scheduler checkSideDoorSensor"
-        log.debug "[${method}] Closing door in ${closeSideDoorDelayAfterSensorClosed} sec"
+    if (evt.device != null) {
+    	def relatedElements = getDataRelatedByLockId(evt.device.id)
         
-    	unschedule(checkSideDoorSensor)
-        
-        state.sideDoorClosedBy = null
-    	state.sideDoorClosedByAt = null
-        state.sideDoorCheckStatus = "Side door sensor closed, door will be closed in ${closeSideDoorDelayAfterSensorClosed} sec"
-        sendEvent(name: "status", value: "updated")
-        
-    	runIn(closeSideDoorDelayAfterSensorClosed, closeSideDoor)
+        log.debug "[${method}] checking in ${relatedElements.interval} min"
+        log.debug "[${method}] Side door lock status in ${relatedElements.lock.currentLock}"
+
+        if (relatedElements.lock.currentLock != "locked") {
+            log.debug "[${method}] Removing scheduler ${relatedElements.callbackFunction}"
+            log.debug "[${method}] Closing door in ${relatedElements.closeDelay} sec"
+
+            unschedule(relatedElements.callbackFunction)
+
+            writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
+                                                       "closedByAt":null,
+                                                       "checkStatus":"Side door sensor closed, door will be closed in ${relatedElements.closeDelay} sec"])
+
+            runIn(relatedElements.closeDelay, closeDoor, [overwrite: false, data: [deviceObj: relatedElements.lock]])
+        }
+    } else {
+    	log.debug "[${method}] Device obj from Evnt is null"
     }
 }
 
-def sideDoorLockOnUnlocked(evt) {
-	def method = "sideDoorLockOnUnlocked"
-	log.debug "[${method}] checking in ${checkSideDoorInterval} min"
+def onLockUnlock(evt) {
+	def method = "onUnlock"
     
-    state.sideDoorClosedBy = null
-    state.sideDoorClosedByAt = null
-    state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been opened, checking sensor in ${checkSideDoorInterval} min"
-    sendEvent(name: "status", value: "updated")
+    if (evt.device != null) {
+    	def relatedElements = getDataRelatedByLockId(evt.device.id)
     
-	runIn(60 * checkSideDoorInterval, checkSideDoorSensor);
-}
+    	if (relatedElements != null) {
+            log.debug "[${method}] checking in ${relatedElements.interval} min"
 
-def sideDoorLockOnlock(evt){
-	def method = "sideDoorLockOnlock"
-	log.debug "[${method}] Side door sensor status ${sideDoorSensor.currentContact}"
-    
-	if (sideDoorSensor.currentContact == "closed") {
-    	log.debug "[${method}] Side door is closed, removing scheduler checkSideDoorSensor"
-		unschedule(checkSideDoorSensor)
-	}
-}
-
-// Front door
-def contactFrontDoorSensorOnClose(evt){
-	def method = "contactFrontDoorSensorOnClose"
-    
-	log.debug "[${method}] checking in ${checkFrontDoorInterval} min"
-	log.debug "[${method}] Front door lock status in ${frontDoorLock.currentLock}"
-    
-	if (frontDoorLock.currentLock != "locked") {
-    	log.debug "[${method}] Removing scheduler checkFrontDoorSensor"
-        log.debug "[${method}] Closing door in ${closeFrontDoorDelayAfterSensorClosed} sec"
-        
-    	unschedule(checkFrontDoorSensor)
-        
-        state.frontDoorClosedBy = null
-    	state.frontDoorClosedByAt = null
-        state.frontDoorCheckStatus = "Front door sensor closed, door will be closed in ${closeFrontDoorDelayAfterSensorClosed} sec"
-        sendEvent(name: "status", value: "updated")
-        
-    	runIn(closeFrontDoorDelayAfterSensorClosed, closeFrontDoor)
+			writeLogByLockId(evt.device.id, ["closedBy":null,
+        									"closedByAt":null,
+                                            "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${evt.device.label} has been opened, checking sensor in ${relatedElements.interval} min"])
+   
+            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.lock]]);
+     	} else {
+        	log.debug "[${method}] Couldn't get related elements from ${evt.device.label}"
+        }
+  	} else {
+    	log.debug "[${method}] Device obj from Evnt is null"
     }
 }
 
-def frontDoorLockOnUnlocked(evt) {
-	def method = "frontDoorLockOnUnlocked"
-	log.debug "[${method}] checking in ${checkFrontDoorInterval} min"
-    
-    state.frontDoorClosedBy = null
-    state.frontDoorClosedByAt = null
-    state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door has been opened, checking sensor in ${checkFrontDoorInterval} min"
-    sendEvent(name: "status", value: "updated")
-    
-	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor);
-}
+def onLockLock(evt){
+	def method = "onLock"
+    if (evt.device != null) {
+    	def relatedElements = getDataRelatedByLockId(evt.device.id)
+        
+        if (relatedElements != null) {
+            log.debug "[${method}] ${evt.device.label} sensor status ${relatedElements.sensor.currentContact}"
 
-def frontDoorLockOnlock(evt){
-	def method = "frontDoorLockOnlock"
-	log.debug "[${method}] Front door sensor status ${frontDoorSensor.currentContact}"
-    
-	if (frontDoorSensor.currentContact == "closed") {
-    	log.debug "[${method}] Front door is closed, removing scheduler checkFrontDoorSensor"
-		unschedule(checkFrontDoorSensor)
-	}
+            if (relatedElements.sensor.currentContact == "closed") {
+                log.debug "[${method}] ${evt.device.label} is closed, removing ${relatedElements.callbackFunction}"
+                
+                unschedule(relatedElements.callbackFunction)
+            }
+        } else {
+        	log.debug "[${method}] Couldn't get related elements from ${evt.device.label}"
+        }
+    } else {
+    	 log.debug "[${method}] Device obj from Evnt is null"
+    }
 }
 /*** END EVENT HANDLERS ***/
 
@@ -273,114 +255,92 @@ def frontDoorLockOnlock(evt){
 * DOOR METHODS
 */
 // Side door
-def closeSideDoor(){
-	state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
-    state.sideDoorClosedByAt = now()
-    state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Closing side door now"
-    sendEvent(name: "status", value: "updated")
+def closeDoor(data){
+	def method = "closeDoor"
     
-	sideDoorLock.lock()
-    
-    runIn(5, checkIfSideDoorClosed, [data: [tryCount: 1]]);
+	if (data.deviceObj != null) {
+    	def lockObj = findDeviceById(data.deviceObj.id)
+        
+        writeLogByLockId(data.deviceObj.id, ["closedBy":"[${data.closedBy}]",
+        									"closedByAt":now(),
+                                            "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Closing ${lockObj.label} now"])
+        
+        lockObj.lock()
+
+        runIn(5, checkIfDoorClosed, [data: [tryCount: 1, deviceObj: lockObj]]);
+  	} else {
+    	log.debug "[${method}] Device obj from data is null"
+    }
 }
 
-def checkIfSideDoorClosed(data) {
-	if (data.tryCount <= 3) {
-        if (sideDoorLock.currentLock != "locked") {
-            state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
-            state.sideDoorClosedByAt = now()
-            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't close, try again in 5s"
-            sendEvent(name: "status", value: "updated")
+def checkIfDoorClosed(data) {
+	def method = "closeDoor"
+    
+    if (data.deviceObj != null) {
+    	def lockObj = findDeviceById(data.deviceObj.id)
+        
+        if (data.tryCount <= 3) {
+            if (lockObj.currentLock != "locked") {
+            	writeLogByLockId(data.deviceObj.id, ["closedBy":"[checkIfDoorClosed]",
+                                                    "closedByAt":now(),
+                                                    "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't close, try again in 5s (${data.tryCount})"])
 
-            sideDoorLock.lock()
+                sideDoorLock.lock()
 
-            runIn(5, checkIfSideDoorClosed, [data: [tryCount: data.tryCount + 1]]);
+                runIn(5, checkIfDoorClosed, [data: [tryCount: data.tryCount + 1, deviceObj: lockObj]]);
+            } else {
+            	writeLogByLockId(data.deviceObj.id, ["closedBy":"[checkIfDoorClosed]",
+                                                    "closedByAt":now(),
+                                                    "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} has been closed (${data.tryCount})"])
+            }
         } else {
-            state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
-            state.sideDoorClosedByAt = now()
-            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed"
-            sendEvent(name: "status", value: "updated")
-
-            sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed")
+        	def message = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't lock (!)"
+            
+        	writeLogByLockId(data.deviceObj.id, ["closedBy":"[contactSideDoorSensorOnClose]",
+                                                    "closedByAt":now(),
+                                                    "checkStatus":message])
+                                                    
+            sendPush(message)
         }
   	} else {
-    	state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
-        state.sideDoorClosedByAt = now()
-        state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't lock (!)"
-        sendEvent(name: "status", value: "updated")
-
-        sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't lock (!)")
+    	log.debug "[${method}] Device obj from data is null"
     }
 }
 
-def checkSideDoorSensor() {
-	def method = "checkSideDoorSensor"
-	log.debug "[${method}] The current value of sideDoorSensor is ${sideDoorSensor.currentContact}"
-    
-	if (sideDoorSensor.currentContact == "closed") {
-		log.debug "[${method}] Locking side door"
-        
-        state.sideDoorClosedBy = "[${method}]"
-        state.sideDoorClosedByAt = now()
-        state.sideDoorCheckStatus = "Door is closed"
-        sendEvent(name: "status", value: "updated")
-        
-		sideDoorLock.lock()
-	} else if (sideDoorLock.currentLock != "locked") {
-    	log.debug "[${method}] Executing checkSideDoorSensor in ${checkSideDoorInterval} min"
-        
-        state.sideDoorClosedBy = null
-        state.sideDoorClosedByAt = null
-        state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkSideDoorInterval} min"
-        sendEvent(name: "status", value: "updated")
-        
-    	runIn(60 * checkSideDoorInterval, checkSideDoorSensor, [overwrite: false]);
-  	} else {
-    	state.sideDoorClosedBy = null
-        state.sideDoorClosedByAt = now()
-        state.sideDoorCheckStatus = "Door is closed"
-        sendEvent(name: "status", value: "updated")
-    }
-}
-// Front door
-def closeFrontDoor(){
-	state.frontDoorClosedBy = "[contactFrontDoorSensorOnClose]"
-    state.frontDoorClosedByAt = now()
-    state.frontDoorCheckStatus = "Door is closed"
-    sendEvent(name: "status", value: "updated")
-    
-	frontDoorLock.lock()
-    
-    sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door has been closed")
-}
+//Wrappers
+def checkSideDoorSensor(data) { checkDoorSensor(data) }
+def checkFrontDoorSensor(data) { checkDoorSensor(data) }
 
-def checkFrontDoorSensor() {
-	def method = "checkFrontDoorSensor"
-	log.debug "[${method}] The current value of frontDoorSensor is ${frontDoorSensor.currentContact}"
-    
-	if (frontDoorSensor.currentContact == "closed") {
-		log.debug "[${method}] Locking side door"
+def checkDoorSensor(data) {
+	if (data?.deviceObj != null) {
+        def method = "checkDoorSensor"
         
-        state.frontDoorClosedBy = "[${method}]"
-        state.frontDoorClosedByAt = now()
-        state.frontDoorCheckStatus = "Door is closed"
-        sendEvent(name: "status", value: "updated")
+        def relatedElements = getDataRelatedBySensorId(data.deviceObj.id)
         
-		frontDoorLock.lock()
-	} else if (frontDoorLock.currentLock != "locked") {
-    	log.debug "[${method}] Executing checkFrontDoorSensor in ${checkFrontDoorInterval} min"
-        
-        state.frontDoorClosedBy = null
-        state.frontDoorClosedByAt = null
-        state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Sensor is still opened, checking sensor in ${checkFrontDoorInterval} min"
-        sendEvent(name: "status", value: "updated")
-        
-    	runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor, [overwrite: false]);
-  	} else {
-    	state.frontDoorClosedBy = null
-        state.frontDoorClosedByAt = now()
-        state.frontDoorCheckStatus = "Door is closed"
-        sendEvent(name: "status", value: "updated")
+        log.debug "[${method}] The current value of ${relatedElements.lock.label} is ${relatedElements.sensor.currentContact}"
+ 
+        if (relatedElements.sensor.currentContact == "closed") {
+            log.debug "[${method}] Locking ${relatedElements.lock.label}"
+
+            data.closedBy = "[${method}]"
+			data.deviceObj = relatedElements.lock
+
+            closeDoor(data)
+        } else if (relatedElements.lock.currentLock != "locked") {
+            log.debug "[${method}] Executing checkSideDoorSensor in ${relatedElements.interval} min"
+
+			writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
+                                                        "closedByAt":null,
+                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.sensor.label} is still opened, checking sensor in ${relatedElements.interval} min"])
+       
+            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.sensor]]);
+        } else {
+        	writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
+                                                        "closedByAt":now(),
+                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.lock} Door is closed"])
+        }
+ 	} else {
+    	log.debug "[${method}] deviceObj is null (?)"
     }
 }
 
@@ -458,4 +418,70 @@ def checkLights() {
 
 def formateTime(java.lang.Long time) {
 	return new Date(time).format("MM/dd hh:mm a", location.timeZone);
+}
+
+def findDeviceById(id) {
+	def myAppDevices = [];
+	for (setting in settings) {
+    	try {
+        	log.debug setting.id
+        	myAppDevices = myAppDevices + setting.value
+        } catch (Exception e) {}
+	}
+    
+    return myAppDevices.find{ it.id == id }
+}
+
+def getDataRelatedByLockId(lockId) {
+	def relatedElements = null
+    
+	if (frontDoorLock.id == lockId) {
+    	relatedElements = ["lock":frontDoorLock,,
+        					"sensor": frontDoorSensor,
+        					"interval": checkFrontDoorInterval,
+                            "closeDelay": closeFrontDoorDelayAfterSensorClosed,
+                            "callbackFunction": checkFrontDoorSensor];
+    } else if (sideDoorLock.id == lockId) {
+    	relatedElements = ["lock":sideDoorLock,
+        					"sensor":sideDoorSensor,
+        					"interval":checkSideDoorInterval,
+                            "closeDelay":closeSideDoorDelayAfterSensorClosed,
+                            "callbackFunction":checkSideDoorSensor];
+    }
+    
+    return relatedElements
+}
+
+def getDataRelatedBySensorId(sensorId) {
+	def relatedElements = null
+    
+	if (frontDoorSensor.id == sensorId) {
+    	relatedElements = ["lock":frontDoorLock,
+        					"sensor": frontDoorSensor,
+        					"interval":checkFrontDoorInterval,
+                            "closeDelay":closeFrontDoorDelayAfterSensorClosed,
+                            "callbackFunction": checkFrontDoorSensor];
+    } else if (sideDoorSensor.id == sensorId) {
+    	relatedElements = ["lock":sideDoorLock,
+        					"sensor":sideDoorSensor,
+        					"interval":checkSideDoorInterval,
+                            "closeDelay":closeSideDoorDelayAfterSensorClosed,
+                            "callbackFunction":checkSideDoorSensor];
+    }
+    
+    return relatedElements
+}
+
+def writeLogByLockId(lockId, logData) {
+	if (frontDoorLock.id == lockId) {
+    	state.frontDoorClosedBy = logData.closedBy
+       	state.frontDoorClosedByAt = logData.closedByAt
+      	state.frontDoorCheckStatus = logData.checkStatus
+    } else if (sideDoorLock.id == lockId) {
+    	state.sideDoorClosedBy = logData.closedBy
+       	state.sideDoorClosedByAt = logData.closedByAt
+      	state.sideDoorCheckStatus = logData.checkStatus
+    }
+    
+    sendEvent(name: "status", value: "updated")
 }
