@@ -185,7 +185,7 @@ def onSensorClose(evt){
 	def method = "onSensorClose"
     
     if (evt.device != null) {
-    	def relatedElements = getDataRelatedByLockId(evt.device.id)
+    	def relatedElements = getDataRelatedBySensorId(evt.device.id)
         
         log.debug "[${method}] checking in ${relatedElements.interval} min"
         log.debug "[${method}] Side door lock status in ${relatedElements.lock.currentLock}"
@@ -424,7 +424,7 @@ def findDeviceById(id) {
 	def myAppDevices = [];
 	for (setting in settings) {
     	try {
-        	log.debug setting.id
+        	def deviceId = setting.value.id
         	myAppDevices = myAppDevices + setting.value
         } catch (Exception e) {}
 	}
