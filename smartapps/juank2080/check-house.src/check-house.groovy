@@ -276,12 +276,41 @@ def frontDoorLockOnlock(evt){
 def closeSideDoor(){
 	state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
     state.sideDoorClosedByAt = now()
-    state.sideDoorCheckStatus = "Door is closed"
+    state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Closing side door now"
     sendEvent(name: "status", value: "updated")
     
 	sideDoorLock.lock()
     
-    sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed")
+    runIn(5, checkIfSideDoorClosed, [data: [tryCount: 1]]);
+}
+
+def checkIfSideDoorClosed(data) {
+	if (data.tryCount <= 3) {
+        if (sideDoorLock.currentLock != "locked") {
+            state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
+            state.sideDoorClosedByAt = now()
+            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't close, try again in 5s"
+            sendEvent(name: "status", value: "updated")
+
+            sideDoorLock.lock()
+
+            runIn(5, checkIfSideDoorClosed, [data: [tryCount: data.tryCount + 1]]);
+        } else {
+            state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
+            state.sideDoorClosedByAt = now()
+            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed"
+            sendEvent(name: "status", value: "updated")
+
+            sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door has been closed")
+        }
+  	} else {
+    	state.sideDoorClosedBy = "[contactSideDoorSensorOnClose]"
+        state.sideDoorClosedByAt = now()
+        state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't lock (!)"
+        sendEvent(name: "status", value: "updated")
+
+        sendPush("[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door didn't lock (!)")
+    }
 }
 
 def checkSideDoorSensor() {
