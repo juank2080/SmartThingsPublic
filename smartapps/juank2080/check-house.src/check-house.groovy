@@ -78,17 +78,17 @@ def pageOne() {
         section("Outside lights:") {
         	paragraph "Outside lights on: ${lightsOutdoorRef?.any { light -> light.currentSwitch == "on" }? "Yes" : "No"}"
 			paragraph "Outside lights attempt: ${state?.lightAttempt != null? state.lightAttempt : "NA"}"
-            paragraph "Outside lights shut at: ${state?.outsideLightsShutAt != null? formateTime(state.outsideLightsShutAt) : "NA"}"
+            paragraph "Outside lights shut at: ${state?.outsideLightsShutAt != null? formatTime(state.outsideLightsShutAt) : "NA"}"
             paragraph "Outside lights check status: ${state?.outsideLightsCheckStatus != null? state.outsideLightsCheckStatus : "NA"}"
         }
         section("Front door:") {
             paragraph "Front door closed by: ${state?.frontDoorClosedBy != null? state.frontDoorClosedBy : "NA"}"
-            paragraph "Front door closed by at: ${state?.frontDoorClosedByAt != null? formateTime(state.frontDoorClosedByAt) : "NA"}"
+            paragraph "Front door closed by at: ${state?.frontDoorClosedByAt != null? formatTime(state.frontDoorClosedByAt) : "NA"}"
             paragraph "Front door check status: ${state?.frontDoorCheckStatus != null? state?.frontDoorCheckStatus : "NA"}"
         }
         section("Side door:") {
             paragraph "Side door closed by: ${state?.sideDoorClosedBy != null? state.sideDoorClosedBy : "NA"}"
-            paragraph "Side door closed by at: ${state?.sideDoorClosedByAt != null? formateTime(state.sideDoorClosedByAt) : "NA"}"
+            paragraph "Side door closed by at: ${state?.sideDoorClosedByAt != null? formatTime(state.sideDoorClosedByAt) : "NA"}"
             paragraph "Side door check status: ${state?.sideDoorCheckStatus != null? state?.sideDoorCheckStatus : "NA"}"
 		}
         section("General:") {
@@ -131,43 +131,8 @@ def initialize() {
     
     state.goBedLocksStatus = null
   
-	// My App event subscriptions
-    if (frontDoorLock != null) {
-        subscribe(frontDoorLock, "lock.locked", onLockLock)
-        subscribe(frontDoorLock, "lock.unlocked", onLockUnlock)
-        subscribe(frontDoorSensor, "contact.closed", onSensorClose)
-        
-        // Check if door is currently "unlocked"
-        log.debug "Current values: Door (${frontDoorLock.currentLock}), Contact: (${frontDoorSensor.currentContact})"
-        if (frontDoorLock.currentLock != "locked" && frontDoorSensor.currentContact == "closed") {
-            log.debug "Setting timer to check front door again in ${checkFrontDoorInterval} min"
-
-            state.frontDoorClosedBy = null
-            state.frontDoorClosedByAt = null
-            state.frontDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Front door is currently opened, checking sensor in ${checkFrontDoorInterval} min"
-            sendEvent(name: "status", value: "updated")
-
-            runIn(60 * checkFrontDoorInterval, checkFrontDoorSensor, [overwrite: false, data: [deviceObj: frontDoorSensor]]);
-        } 
-  	}
-    if (sideDoorLock != null) {
-        subscribe(sideDoorLock, "lock.locked", onLockLock)
-        subscribe(sideDoorLock, "lock.unlocked", onLockUnlock)
-        subscribe(sideDoorSensor, "contact.closed", onSensorClose)
-        
-        // Check if door is currently "unlocked"
-        log.debug "Current values: Door (${sideDoorLock.currentLock}), Contact: (${sideDoorSensor.currentContact})"
-        if (sideDoorLock.currentLock != "locked" && sideDoorSensor.currentContact == "closed") {
-            log.debug "Setting timer to check side door again in ${checkSideDoorInterval} min"
-
-            state.sideDoorClosedBy = null
-            state.sideDoorClosedByAt = null
-            state.sideDoorCheckStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Side door is currently opened, checking sensor in ${checkSideDoorInterval} min"
-            sendEvent(name: "status", value: "updated")
-
-            runIn(60 * checkSideDoorInterval, checkSideDoorSensor, [overwrite: false, data: [deviceObj: sideDoorSensor]]);
-        } 
-  	}
+	setUpLockRoutineById(frontDoorLock?.id)
+    setUpLockRoutineById(sideDoorLock?.id)
     
     // Creating schedulers using timezone 
 	def start = timeToday(timeOfDayLights, location?.timeZone)
@@ -188,7 +153,7 @@ def onSensorClose(evt){
     	def relatedElements = getDataRelatedBySensorId(evt.device.id)
         
         log.debug "[${method}] checking in ${relatedElements.interval} min"
-        log.debug "[${method}] Side door lock status in ${relatedElements.lock.currentLock}"
+        log.debug "[${method}] ${relatedElements.lock.label} status in ${relatedElements.lock.currentLock}"
 
         if (relatedElements.lock.currentLock != "locked") {
             log.debug "[${method}] Removing scheduler ${relatedElements.callbackFunction}"
@@ -198,7 +163,7 @@ def onSensorClose(evt){
 
             writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
                                                        "closedByAt":null,
-                                                       "checkStatus":"Side door sensor closed, door will be closed in ${relatedElements.closeDelay} sec"])
+                                                       "checkStatus":"${relatedElements.sensor.label} closed, door will be closed in ${relatedElements.closeDelay} sec"])
 
             runIn(relatedElements.closeDelay, closeDoor, [overwrite: false, data: [deviceObj: relatedElements.lock]])
         }
@@ -267,21 +232,21 @@ def closeDoor(data){
         
         lockObj.lock()
 
-        runIn(5, checkIfDoorClosed, [data: [tryCount: 1, deviceObj: lockObj]]);
+        runIn(5, checkIfDoorClosed, [data: [tryCount: 1, deviceObj: lockObj, closedBy: data.closedBy != null? data.closedBy : "[${method}]"]]);
   	} else {
     	log.debug "[${method}] Device obj from data is null"
     }
 }
 
 def checkIfDoorClosed(data) {
-	def method = "closeDoor"
+	def method = "checkIfDoorClosed"
     
     if (data.deviceObj != null) {
     	def lockObj = findDeviceById(data.deviceObj.id)
         
         if (data.tryCount <= 3) {
             if (lockObj.currentLock != "locked") {
-            	writeLogByLockId(data.deviceObj.id, ["closedBy":"[checkIfDoorClosed]",
+            	writeLogByLockId(data.deviceObj.id, ["closedBy":"[${method}]",
                                                     "closedByAt":now(),
                                                     "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't close, try again in 5s (${data.tryCount})"])
 
@@ -289,14 +254,14 @@ def checkIfDoorClosed(data) {
 
                 runIn(5, checkIfDoorClosed, [data: [tryCount: data.tryCount + 1, deviceObj: lockObj]]);
             } else {
-            	writeLogByLockId(data.deviceObj.id, ["closedBy":"[checkIfDoorClosed]",
+            	writeLogByLockId(data.deviceObj.id, ["closedBy":data.tryCount == 1 && data.closedBy != null? data.closedBy : "[${method}]",
                                                     "closedByAt":now(),
                                                     "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} has been closed (${data.tryCount})"])
             }
         } else {
         	def message = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't lock (!)"
             
-        	writeLogByLockId(data.deviceObj.id, ["closedBy":"[contactSideDoorSensorOnClose]",
+        	writeLogByLockId(data.deviceObj.id, ["closedBy":"[${method}]",
                                                     "closedByAt":now(),
                                                     "checkStatus":message])
                                                     
@@ -327,7 +292,7 @@ def checkDoorSensor(data) {
 
             closeDoor(data)
         } else if (relatedElements.lock.currentLock != "locked") {
-            log.debug "[${method}] Executing checkSideDoorSensor in ${relatedElements.interval} min"
+            log.debug "[${method}] Executing ${method} in ${relatedElements.interval} min"
 
 			writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
                                                         "closedByAt":null,
@@ -350,7 +315,14 @@ def checkLocks(){
 	log.debug "[${method}] Locking doors..."
     
     if (doorLocks?.any { lock -> lock.currentLock != "locked" }) {
-    	doorLocks.findAll { lock -> lock.currentLock != "locked" }?.each { lock -> lock.lock() }
+    	doorLocks.findAll { lock -> lock.currentLock != "locked" }?.each { lock -> 
+                                def relatedElements = getDataRelatedByLockId(lock.id)
+
+                                if (relatedElements.sensor.currentContact == "closed") {
+                                    lock.lock()
+                                }
+                   		  }
+                          
     	state.goBedLocksStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Doors were closed (${doorLocks.size()})"
     } else {
     	state.goBedLocksStatus = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] All doors were already closed (${doorLocks.size()})"
@@ -384,7 +356,7 @@ def checkLights() {
                 state.outsideLightsShutAt = null
                 sendEvent(name: "status", value: "updated")
 
-                runIn(60*checkInterval, checkLights, [overwrite: false]);
+                runIn(60 * checkInterval, checkLights, [overwrite: false]);
         	} else {
             	log.debug "[${method}] Max attempts reached, indoor lights still on, no more attempts will be done, outdoor lights remain on"
             
@@ -416,8 +388,37 @@ def checkLights() {
 * END LIGHTS METHODS
 */
 
-def formateTime(java.lang.Long time) {
+def formatTime(java.lang.Long time) {
 	return new Date(time).format("MM/dd hh:mm a", location.timeZone);
+}
+
+def setUpLockRoutineById(lockId) {
+	def method = "setUpLockRoutineById"
+	log.debug "[${method}] setting up lock ..."
+    
+    if (lockId != null) {
+    	def relatedElements = getDataRelatedByLockId(lockId)
+        
+        if (relatedElements.sensor != null) {
+            subscribe(relatedElements.lock, "lock.locked", onLockLock)
+            subscribe(relatedElements.lock, "lock.unlocked", onLockUnlock)
+            subscribe(relatedElements.sensor, "contact.closed", onSensorClose)
+
+            // Check if door is currently "unlocked"
+            log.debug "Current values: ${relatedElements.lock.label} (${relatedElements.lock.currentLock}), ${relatedElements.sensor.label}: (${relatedElements.sensor.currentContact})"
+            if (relatedElements.lock.currentLock != "locked" && relatedElements.sensor.currentContact == "closed") {
+                log.debug "Setting timer to check ${relatedElements.lock.label} again in ${relatedElements.interval} min"
+
+				writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
+                                                           "closedByAt":null,
+                                                           "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.lock.label} is currently opened, checking sensor in ${relatedElements.interval} min"])
+
+                runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.sensor]]);
+            }
+     	} else {
+        	log.debug "[${method}] No sensor configured for ${relatedElements.lock.label} ..."
+        }
+  	}
 }
 
 def findDeviceById(id) {
