@@ -165,7 +165,7 @@ def onSensorClose(evt){
                                                        "closedByAt":null,
                                                        "checkStatus":"${relatedElements.sensor.label} closed, door will be closed in ${relatedElements.closeDelay} sec"])
 
-            runIn(relatedElements.closeDelay, closeDoor, [overwrite: false, data: [deviceObj: relatedElements.lock]])
+            runIn(relatedElements.closeDelay, closeDoor, [overwrite: false, data: [deviceObj: relatedElements.lock, closedBy: "[${method}]"]])
         }
     } else {
     	log.debug "[${method}] Device obj from Evnt is null"
@@ -298,7 +298,7 @@ def checkDoorSensor(data) {
                                                         "closedByAt":null,
                                                         "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.sensor.label} is still opened, checking sensor in ${relatedElements.interval} min"])
        
-            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.sensor]]);
+            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.sensor, closedBy: "[${method}]"]]);
         } else {
         	writeLogByLockId(relatedElements.lock.id, ["closedBy":null,
                                                         "closedByAt":now(),
