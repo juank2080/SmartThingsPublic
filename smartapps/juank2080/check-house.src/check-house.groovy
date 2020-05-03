@@ -185,7 +185,7 @@ def onLockUnlock(evt) {
         									"closedByAt":null,
                                             "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${evt.device.label} has been opened, checking sensor in ${relatedElements.interval} min"])
    
-            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.lock]]);
+            runIn(60 * relatedElements.interval, relatedElements.callbackFunction, [overwrite: false, data: [deviceObj: relatedElements.sensor]]);
      	} else {
         	log.debug "[${method}] Couldn't get related elements from ${evt.device.label}"
         }
@@ -219,7 +219,6 @@ def onLockLock(evt){
 /**
 * DOOR METHODS
 */
-// Side door
 def closeDoor(data){
 	def method = "closeDoor"
     
@@ -232,7 +231,7 @@ def closeDoor(data){
         
         lockObj.lock()
 
-        runIn(5, checkIfDoorClosed, [data: [tryCount: 1, deviceObj: lockObj, closedBy: data.closedBy != null? data.closedBy : "[${method}]"]]);
+        runIn(5, checkIfDoorClosed, [overwrite: false, data: [tryCount: 1, deviceObj: lockObj, closedBy: data.closedBy != null? data.closedBy : "[${method}]"]]);
   	} else {
     	log.debug "[${method}] Device obj from data is null"
     }
@@ -250,9 +249,9 @@ def checkIfDoorClosed(data) {
                                                     "closedByAt":now(),
                                                     "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't close, try again in 5s (${data.tryCount})"])
 
-                sideDoorLock.lock()
+                lockObj.lock()
 
-                runIn(5, checkIfDoorClosed, [data: [tryCount: data.tryCount + 1, deviceObj: lockObj]]);
+                runIn(5, checkIfDoorClosed, [overwrite: false, data: [tryCount: data.tryCount + 1, deviceObj: lockObj]]);
             } else {
             	writeLogByLockId(data.deviceObj.id, ["closedBy":data.tryCount == 1 && data.closedBy != null? data.closedBy : "[${method}]",
                                                     "closedByAt":now(),
@@ -279,6 +278,8 @@ def checkFrontDoorSensor(data) { checkDoorSensor(data) }
 def checkDoorSensor(data) {
 	if (data?.deviceObj != null) {
         def method = "checkDoorSensor"
+        
+        log.debug "[${method}] ${data.deviceObj}"
         
         def relatedElements = getDataRelatedBySensorId(data.deviceObj.id)
         
