@@ -428,11 +428,16 @@ def checkLights() {
 * TEMPERATURE METHODS
 */
 def checkTemperature() {
+	def method = "checkTemperature"
+    
 	state.tempInfoFirstFloor = ""
     state.tempInfoSecondFloor = ""
     
-    temperatureSensorsFirstFloor.each{ state.tempInfoFirstFloor += "[" it.label + "" + it.currentValue + "] " }
-    temperatureSensorsSecondFloor.each{ state.tempInfoSecondFloor += "[" it.label + "" + it.currentValue + "] " }
+    temperatureSensorsFirstFloor.each{ state.tempInfoFirstFloor = "${state.tempInfoFirstFloor} [${it.label} ${it.currentTemperature}] " }
+    temperatureSensorsSecondFloor.each{ state.tempInfoSecondFloor = "${state.tempInfoSecondFloor} [${it.label} ${it.currentTemperature}] " }
+    
+    log.debug "[${method}] ${state.tempInfoFirstFloor}"
+    log.debug "[${method}] ${state.tempInfoSecondFloor}"
     
     sendEvent(name: "status", value: "updated")
 }
