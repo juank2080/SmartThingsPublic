@@ -73,15 +73,9 @@ preferences {
                       "Routines for temperature"
 		}
         section("First Floor:") {
-            //input "thermostatModeFirstFloor", "capability.thermostatMode", multiple: true, title: "Thermostat Mode"
-            //input "thermostatHSPFirstFloor", "capability.thermostatHeatingSetpoint", multiple: true, title: "Thermostat Heating Set Point"
-            //input "thermostatCSPFirstFloor", "capability.thermostatCoolingSetpoint", multiple: true, title: "Thermostat Cooling Set Point"
             input "temperatureSensorsFirstFloor", "capability.temperatureMeasurement", multiple: true, title: "Temperature Sensors"
         }
         section("Second Floor:") {
-            //input "thermostatModeSecondFloor", "capability.thermostatMode", multiple: true, title: "Thermostat Mode"
-            //input "thermostatHSPSecondFloor", "capability.thermostatHeatingSetpoint", multiple: true, title: "Thermostat Heating Set Point"
-            //input "thermostatCSPSecondFloor", "capability.thermostatCoolingSetpoint", multiple: true, title: "Thermostat Cooling Set Point"
             input "temperatureSensorsSecondFloor", "capability.temperatureMeasurement", multiple: true, title: "Temperature Sensors"
         }
 	}
@@ -254,7 +248,7 @@ def closeDoor(data){
 	if (data.deviceObj != null) {
         def relatedElements = getDataRelatedByLockId(data.deviceObj.id)
         
-        if (relatedElements.sensor.currentContact != "closed") {
+        if (relatedElements.sensor.currentContact == "closed") {
             writeLogByLockId(data.deviceObj.id, ["closedBy":"[${data.closedBy}]",
                                                 "closedByAt":now(),
                                                 "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Closing ${relatedElements.lock.label} now"])
@@ -274,7 +268,7 @@ def checkIfDoorClosed(data) {
     if (data.deviceObj != null) {
         def relatedElements = getDataRelatedByLockId(data.deviceObj.id)
         
-        if (relatedElements.sensor.currentContact != "closed") {
+        if (relatedElements.sensor.currentContact == "closed") {
         	def lockObj = relatedElements.lock
             
             if (data.tryCount <= 3) {
