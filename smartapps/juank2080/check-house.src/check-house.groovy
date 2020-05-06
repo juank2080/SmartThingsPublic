@@ -54,15 +54,15 @@ preferences {
                       "Routines for go bed"
 		}
         section("Lights:") {
-            input "lightsIndoorRef", "capability.light", multiple: true, title: "Indoor Lights as Reference"
-            input "lightsOutdoorRef", "capability.light", multiple: true, title: "Outside Lights to check"
-            input "timeOfDayLights", "time", title: "Time?"
-            input "checkInterval", "number", title: "Check in between (min)", required: true, multiple: false
-            input "maxAttempts", "number", title: "Max Attempts", required: true, multiple: false
+            input "lightsIndoorRef", "capability.light", required: false, multiple: true, title: "Indoor Lights as Reference"
+            input "lightsOutdoorRef", "capability.light", required: false, multiple: true, title: "Outside Lights to check"
+            input "timeOfDayLights", "time", required: false, title: "Time?"
+            input "checkInterval", "number", required: false, title: "Check in between (min)", multiple: false
+            input "maxAttempts", "number", title: "Max Attempts", required: false, multiple: false
         }
         section("Locks:") {
-            input "doorLocks", "capability.lock", title: "Locks to check?", required: true, multiple: true
-            input "timeOfDayLocks", "time", title: "Time?"
+            input "doorLocks", "capability.lock", title: "Locks to check?", required: false, multiple: true
+            input "timeOfDayLocks", "time", required: false, title: "Time?"
         }
 	}
     page(name: "pageFour", install: true, uninstall: true) {
@@ -73,10 +73,14 @@ preferences {
                       "Routines for temperature"
 		}
         section("First Floor:") {
-            input "temperatureSensorsFirstFloor", "capability.temperatureMeasurement", multiple: true, title: "Temperature Sensors"
+            input "temperatureSensorsFirstFloor", "capability.temperatureMeasurement", required: false, multiple: true, title: "Temperature Sensors"
+            input "thermostatFirstFloor", "capability.thermostat", required: false, multiple: false, title: "Thermostat"
+            input "fanFirstFloor", "capability.switch", required: false, multiple: false, title: "Fan"
         }
         section("Second Floor:") {
-            input "temperatureSensorsSecondFloor", "capability.temperatureMeasurement", multiple: true, title: "Temperature Sensors"
+            input "temperatureSensorsSecondFloor", "capability.temperatureMeasurement", required: false, multiple: true, title: "Temperature Sensors"
+            input "thermostatSecondFloor", "capability.thermostat", required: false, multiple: false, title: "Thermostat"
+            input "fanSecondFloor", "capability.switch", required: false, multiple: false, title: "Fan"
         }
 	}
 }
@@ -156,11 +160,15 @@ def initialize() {
     setUpLockRoutineById(sideDoorLock?.id)
     
     // Creating schedulers using timezone 
-	def start = timeToday(timeOfDayLights, location?.timeZone)
-	schedule(start, checkLights);
+    if (timeOfDayLights != null && lightsIndoorRef?.size() > 0 && lightsOutdoorRef?.size() > 0) {
+        def start = timeToday(timeOfDayLights, location?.timeZone)
+        schedule(start, checkLights);
+  	}
     
-    start = timeToday(timeOfDayLocks, location?.timeZone)
-	schedule(start, checkLocks);
+    if (timeOfDayLocks != null && doorLocks?.size() > 0) {
+        start = timeToday(timeOfDayLocks, location?.timeZone)
+        schedule(start, checkLocks);
+  	}
     
     runEvery30Minutes(checkTemperature)
 }
@@ -248,12 +256,14 @@ def closeDoor(data){
 	if (data.deviceObj != null) {
         def relatedElements = getDataRelatedByLockId(data.deviceObj.id)
         
+        log.debug "[${method}] Sensor is ${relatedElements.sensor.currentContact}"
+        
         if (relatedElements.sensor.currentContact == "closed") {
             writeLogByLockId(data.deviceObj.id, ["closedBy":"[${data.closedBy}]",
                                                 "closedByAt":now(),
                                                 "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] Closing ${relatedElements.lock.label} now"])
 
-            lockObj.lock()
+            relatedElements.lock.lock()
 
             runIn(5, checkIfDoorClosed, [overwrite: false, data: [tryCount: 1, deviceObj: relatedElements.lock, closedBy: data.closedBy != null? data.closedBy : "[${method}]"]]);
       	}
@@ -268,22 +278,23 @@ def checkIfDoorClosed(data) {
     if (data.deviceObj != null) {
         def relatedElements = getDataRelatedByLockId(data.deviceObj.id)
         
+        log.debug "[${method}] Sensor is ${relatedElements.sensor.currentContact}"
+        
         if (relatedElements.sensor.currentContact == "closed") {
-        	def lockObj = relatedElements.lock
             
             if (data.tryCount <= 3) {
-                if (lockObj.currentLock != "locked") {
+                if (relatedElements.lock.currentLock != "locked") {
                     writeLogByLockId(data.deviceObj.id, ["closedBy":"[${method}]",
                                                         "closedByAt":now(),
-                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't close, try again in 5s (${data.tryCount})"])
+                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.lock.label} didn't close, try again in 5s (${data.tryCount})"])
 
-                    lockObj.lock()
+                    relatedElements.lock.lock()
 
-                    runIn(5, checkIfDoorClosed, [overwrite: false, data: [tryCount: data.tryCount + 1, deviceObj: lockObj]]);
+                    runIn(5, checkIfDoorClosed, [overwrite: false, data: [tryCount: data.tryCount + 1, deviceObj: relatedElements.lock]]);
                 } else {
                     writeLogByLockId(data.deviceObj.id, ["closedBy":data.tryCount == 1 && data.closedBy != null? data.closedBy : "[${method}]",
                                                         "closedByAt":now(),
-                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} has been closed (${data.tryCount})"])
+                                                        "checkStatus":"[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${relatedElements.lock.label} has been closed (${data.tryCount})"])
                 }
             } else {
                 def message = "[${new Date(now()).format("MM/dd hh:mm a", location.timeZone)}] ${lockObj.label} didn't lock (!)"
@@ -427,13 +438,63 @@ def checkTemperature() {
 	state.tempInfoFirstFloor = ""
     state.tempInfoSecondFloor = ""
     
-    temperatureSensorsFirstFloor.each{ state.tempInfoFirstFloor = "${state.tempInfoFirstFloor} [${it.label} ${it.currentTemperature}] " }
-    temperatureSensorsSecondFloor.each{ state.tempInfoSecondFloor = "${state.tempInfoSecondFloor} [${it.label} ${it.currentTemperature}] " }
-    
+    [1, 2].each{
+    	def elements = getElementByFloor(it);
+        def logInfo = "["
+        
+        elements?.sensors?.each{ logInfo = "${logInfo}${it.label}: ${it.currentTemperature}, " }
+        
+        logInfo = "${logInfo}]"
+        logInfo = "${logInfo} - [Mode: ${elements?.thermostat?.currentThermostatMode}," +
+        			" ST ${elements?.thermostat?.currentThermostatSetpoint}," +
+                    " H ${elements?.thermostat?.currentHeatingSetpoint}," +
+                    " C ${elements?.thermostat?.currentCoolingSetpoint}," +
+                    " Fan ${elements?.thermostat?.currentThermostatFanMode}, "+
+                    " State: ${elements?.thermostat?.currentThermostatOperatingState}]"
+                    
+     	logInfo = "${logInfo} - [Fan: ${elements?.fan?.currentSwitch != null? elements.fan.currentSwitch : "NA"}]"
+        
+        if (elements.thermostat != null) {
+        	subscribe(elements.thermostat, "temperature", onTemperatureChange)
+     	}
+        
+        if (it == 1) {
+        	state.tempInfoFirstFloor = logInfo
+        } else {
+        	state.tempInfoSecondFloor = logInfo
+        }
+  	}
+ 
     log.debug "[${method}] ${state.tempInfoFirstFloor}"
     log.debug "[${method}] ${state.tempInfoSecondFloor}"
     
     sendEvent(name: "status", value: "updated")
+}
+
+def onTemperatureChange(evt){
+	def method = "onTemperatureChange"
+    
+    log.debug "[${method}] ${evt.device.id} - ${evt.device.label}"
+    log.debug "[${method}] ${evt.longValue}"
+}
+
+def getElementByFloor(int floor){
+	def relatedElements = null
+    
+    switch(floor) {
+    	case 1:
+        	relatedElements = ["sensors":temperatureSensorsFirstFloor,
+                                "thermostat": thermostatFirstFloor,
+                                "fan":fanFirstFloor]
+        break
+        case 2:
+        	relatedElements = ["sensors":temperatureSensorsSecondFloor,
+                                "thermostat": thermostatSecondFloor,
+                                "fan":fanSecondFloor]
+        break
+    }
+    
+	return relatedElements
 }
 /**
 * END TEMPERATURE METHODS
