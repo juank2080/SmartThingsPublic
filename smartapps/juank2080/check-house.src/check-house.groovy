@@ -46,7 +46,7 @@ preferences {
 			input "closeSideDoorDelayAfterSensorClosed", "number", title: "After sensor closes, lock door after: (sec)", required: false, multiple: false
 		}
 	}
-	page(name: "pageThree", , nextPage: "pageFour", uninstall: true) {
+	page(name: "pageThree", nextPage: "pageFour", uninstall: true) {
 		section() {
 			paragraph image: "https://s3.amazonaws.com/smartapp-icons/HealthAndWellness/App-SleepyTime.png",
 						title: "Go Bed Routines",
@@ -65,7 +65,7 @@ preferences {
 			input "timeOfDayLocks", "time", required: false, title: "Time?"
 		}
 	}
-	page(name: "pageFour", install: true, uninstall: true) {
+	page(name: "pageFour", nextPage: "pageFive", uninstall: true) {
 		section() {
 			paragraph image: "https://s3.amazonaws.com/smartapp-icons/Family/App-HabitHelper.png",
 						title: "Temperature",
@@ -89,6 +89,18 @@ preferences {
 			input "fanOnModeSF", "mode", title: "Select a mode when turn fan", required: false, multiple: false
 			input "temperatureCozySF", "number", title: "Cozy Temperature", required: false, multiple: false
 			input "cozyModeSF", "mode", title: "Cozy Mode", required: false, multiple: false
+		}
+	}
+	page(name: "pageFive", install: true, uninstall: true) {
+		section() {
+			paragraph image: "https://s3.amazonaws.com/smartapp-icons/Developers/smart-light-timer.png",
+						title: "Modes",
+						required: true,
+						"When to switch between modes:"
+		}
+		section("Modes:") {
+			input "timeToChangeHomeMode", "time", required: false, title: "Change to Home Mode:"
+			input "timeToChangeGoBedMode", "time", required: false, title: "Change to Go Bed Mode:"
 		}
 	}
 }
@@ -123,6 +135,7 @@ def pageOne() {
 		}
 		section("General:") {
 			paragraph "Go bed locks routine: ${state?.goBedLocksStatus != null? state?.goBedLocksStatus : "NA"}"
+			paragraph "Current Mode: ${location?.currentMode}"
 		}
 	}
 }
@@ -177,7 +190,20 @@ def initialize() {
 		def start = timeToday(timeOfDayLocks, location?.timeZone)
 		schedule(start, checkLocks);
 	}
+	
+	if (timeToChangeHomeMode != null) {
+		def start = timeToday(timeToChangeHomeMode, location?.timeZone)
+		schedule(start, changeModeToHome);
+		
+		timeToChangeGoBedMode
+	}
+	
+	if (timeToChangeGoBedMode != null) {
+		def start = timeToday(timeToChangeGoBedMode, location?.timeZone)
+		schedule(start, changeModeToGoBed);
+	}
 
+	setupTemperatureCheck()
 	runEvery30Minutes(checkTemperature)
 	subscribe(location, "mode", modeChangeHandler)
 }
@@ -273,16 +299,52 @@ def onTemperatureChange(evt){
 def modeChangeHandler(evt) {
 	def method = "modeChangeHandler"
 	
-	log.debug evt
-	
-	if (location?.currentMode == "Living room time") {
-		def sensor = findDeviceByLabel("Sensor 1")
-	
-		temperatureControl(["device":sensor,"temperature":sensor.currentTemperature])
+	// Check routines by Sensor
+	[1, 2].each {
+		def sensor = findDeviceByLabel("Sensor ${it}")
+		if (sensor != null) {
+			log.info "[${method}] Using reference sensor ${sensor.label} "
+		
+			temperatureControl(["device":sensor, "temperature":sensor.currentTemperature])
+		} else {
+			log.warn "[${method}] Sensor ${it} was not found!"
+		}
 	}
 }
 
 /*** END EVENT HANDLERS ***/
+
+/**
+ * MODE METHODS
+ */
+def changeModeToHome() { 
+	changeMode("Home") 
+}
+
+def changeModeToGoBed() { 
+	changeMode("Bed Time") 
+}
+
+def changeMode(newMode) {
+	def method = "changeMode"
+	
+	log.info "[${method}] Current mode ${location.currentMode}"
+	
+	if (location.currentMode != "Away") {
+		if (location.modes?.find{it.name == newMode}) {
+			location.setMode(newMode)
+			
+			log.info "[${method}] Mode set to: ${location.currentMode}"
+		} else {
+			log.warn "[${method}] Tried to change to undefined mode '${newMode}'"
+		}
+	} else {
+		log.warn "[${method}] Location is in ${location.currentMode} mode, mode won't be changed"
+	}
+}
+/**
+ * END MODE METHODS
+ */
 
 /**
 * DOOR METHODS
@@ -470,21 +532,48 @@ def checkLights() {
 /**
 * TEMPERATURE METHODS
 */
+def setupTemperatureCheck() {
+	def method = "setupTemperatureCheck"
+	
+	[1, 2].each{
+		def elements = getElementByFloor(it);
+
+		if (elements != null) {
+			log.info "[${method}] Subscribing sensors floor ${it}"
+			
+			elements.sensors?.each{ 
+						subscribe(it, "temperature", onTemperatureChange)
+					}
+	
+			if (elements.thermostat != null) {
+				log.info "[${method}] Subscribing thermostat for floor ${it}"
+				
+				subscribe(elements.thermostat, "temperature", onTemperatureChange)
+			} else {
+				log.warn "[${method}] No thermostat found for floor ${it}"
+			}
+		} else {
+			log.warn "[${method}] No elements were found for floor ${it}"
+		}
+	}
+}
+
 def checkTemperature() {
 	def method = "checkTemperature"
 
 	state.tempInfoFirstFloor = ""
 	state.tempInfoSecondFloor = ""
+
+	def twC = getTwcConditions()
 	
-	log.info location.currentMode
+	log.info "[${method}] Current outside weather ${twC?.temperature} ${twC?.temperatureChange24Hour} ${twC?.temperatureMin24Hour} ${twC?.temperatureMax24Hour}"
 
 	[1, 2].each{
 		def elements = getElementByFloor(it);
 		def logInfo = "["
 
-		elements?.sensors?.each{ 
+		elements?.sensors?.each{
 					logInfo = "${logInfo}${it.label}: ${it.currentTemperature}, "
-					subscribe(it, "temperature", onTemperatureChange)
 				}
 
 		logInfo = "${logInfo}]"
@@ -496,10 +585,6 @@ def checkTemperature() {
 								" State: ${elements?.thermostat?.currentThermostatOperatingState}]"
 
 		logInfo = "${logInfo} - [Fan: ${elements?.fan?.currentSwitch != null? elements.fan.currentSwitch : "NA"}]"
-
-		if (elements.thermostat != null) {
-			subscribe(elements.thermostat, "temperature", onTemperatureChange)
-		}
 
 		if (it == 1) {
 			state.tempInfoFirstFloor = logInfo
@@ -528,13 +613,17 @@ def temperatureControl(data) {
 			
 			if (data.device.label == "Sensor 1") {
 				if (location?.currentMode == relatedElements?.cozyMode) {
-					if (temperatureValue < relatedElements?.cozyTemp - 2) {
+					if (temperatureValue < relatedElements?.cozyTemp) {
 						if (relatedElements?.thermostat?.currentThermostatMode == "heat") {
 							relatedElements.thermostat.setHeatingSetpoint(relatedElements?.cozyTemp + 1)
+							
+							log.info "[${method}] Setting thermostat to ${relatedElements?.cozyTemp + 1}"
 						}
-					} else if (temperatureValue > relatedElements?.cozyTemp + 2) {
+					} else if (temperatureValue > relatedElements?.cozyTemp) {
 						if (relatedElements?.thermostat?.currentThermostatMode == "cool") {
 							relatedElements.thermostat.setCoolingSetpoint(relatedElements?.cozyTemp - 1)
+							
+							log.info "[${method}] Setting thermostat to ${relatedElements?.cozyTemp - 1}"
 						}
 					}
 				}
@@ -551,7 +640,7 @@ def temperatureControl(data) {
 							
 							log.info "[${method}] Fan turnned on"
 						}
-					} else {
+					} else if (relatedElements?.fan?.currentSwitch == "on") {
 						relatedElements.fan.off()
 						
 						log.info "[${method}] Fan turnned off"
