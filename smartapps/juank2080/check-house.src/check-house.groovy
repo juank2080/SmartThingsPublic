@@ -204,7 +204,7 @@ def initialize() {
 	}
 
 	setupTemperatureCheck()
-	runEvery30Minutes(checkTemperature)
+	//runEvery30Minutes(checkTemperature)
 	subscribe(location, "mode", modeChangeHandler)
 }
 
@@ -334,7 +334,7 @@ def changeMode(newMode) {
 		if (location.modes?.find{it.name == newMode}) {
 			location.setMode(newMode)
 			
-			log.info "[${method}] Mode set to: ${location.currentMode}"
+			log.info "[${method}] Mode set to: ${newMode}"
 		} else {
 			log.warn "[${method}] Tried to change to undefined mode '${newMode}'"
 		}
